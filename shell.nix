@@ -17,5 +17,6 @@ in
 mkShell {
   buildInputs = [
     gleam
+    rebar3
   ];
 }
