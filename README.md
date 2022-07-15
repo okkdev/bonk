@@ -6,7 +6,7 @@ Ko-Fi webhook api for cardian ocg art orders
 
 - `PORT`: port to listen on
 - `DATABASE_URL`: url to connect to database
-- `SECRET`: app secret
+- `AUTH_TOKEN`: auth token to use for requests
 
 ## Quick start
 

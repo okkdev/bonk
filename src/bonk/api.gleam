@@ -20,9 +20,11 @@ pub type AppRequest {
   AppRequest(
     method: http.Method,
     path: List(String),
+    query: List(#(String, String)),
     headers: List(#(String, String)),
     body: String,
     db: pgo.Connection,
+    token: String,
   )
 }
 
@@ -32,28 +34,63 @@ pub fn start(db: pgo.Connection) {
     |> result.then(int.parse)
     |> result.unwrap(3000)
 
-  let web = fn(req) {
-    req
-    |> plug(db)
-    |> router
-  }
+  let token =
+    os.get_env("AUTH_TOKEN")
+    |> result.unwrap("test-token")
 
-  assert Ok(_) = mist.serve(port, mhttp.handler(web))
+  let web = fn(req) { pipeline(req, db, token) }
+
+  assert Ok(_) = mist.serve(port, mhttp.handler(web, 1_000_000))
 
   ["Listening on http://localhost:", int.to_string(port), " ✨"]
   |> string.concat()
   |> io.println()
 }
 
-fn plug(request: Request(BitString), db: pgo.Connection) -> AppRequest {
+fn pipeline(
+  req: Request(BitString),
+  db: pgo.Connection,
+  token: String,
+) -> Response(BitBuilder) {
+  req
+  |> create_app_request(db, token)
+  |> auth()
+  |> fn(app_req) {
+    case app_req {
+      Ok(r) -> router(r)
+      Error(err) -> err
+    }
+  }
+}
+
+fn create_app_request(
+  req: Request(BitString),
+  db: pgo.Connection,
+  token: String,
+) -> AppRequest {
   AppRequest(
-    method: request.method,
-    path: request.path_segments(request),
-    headers: request.headers,
-    body: bit_string.to_string(request.body)
+    method: req.method,
+    path: request.path_segments(req),
+    query: request.get_query(req)
+    |> result.unwrap([]),
+    headers: req.headers,
+    body: bit_string.to_string(req.body)
     |> result.unwrap(""),
     db: db,
+    token: token,
   )
+}
+
+fn auth(req: AppRequest) -> Result(AppRequest, Response(BitBuilder)) {
+  req.query
+  |> list.find(fn(x) { x.0 == "auth" })
+  |> result.replace_error(unauthorized_response())
+  |> result.then(fn(x) {
+    case x.1 == req.token {
+      True -> Ok(req)
+      False -> Error(unauthorized_response())
+    }
+  })
 }
 
 fn router(req: AppRequest) -> Response(BitBuilder) {
@@ -86,6 +123,7 @@ fn router(req: AppRequest) -> Response(BitBuilder) {
         |> order.get_all()
         |> gen_json()
       response.new(200)
+      |> response.prepend_header("content-type", "application/json")
       |> response.set_body(bit_builder.from_string(json))
     }
     _, _ ->
@@ -115,4 +153,9 @@ fn gen_json(orders: List(Order)) -> String {
   })
   |> preprocessed_array()
   |> json.to_string()
+}
+
+fn unauthorized_response() -> Response(BitBuilder) {
+  response.new(401)
+  |> response.set_body(bit_builder.from_string("unauthorized"))
 }
