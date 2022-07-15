@@ -3,20 +3,22 @@ import gleam/bit_string
 import gleam/dynamic.{field, string}
 import gleam/erlang/os
 import gleam/int
+import gleam/uri
 import gleam/list
 import gleam/pgo
+import gleam/pair
 import gleam/io
 import gleam/string
 import gleam/result
 import gleam/http
 import gleam/http/request.{Request}
 import gleam/http/response.{Response}
-import gleam/json.{DecodeError, object, preprocessed_array}
+import gleam/json.{object, preprocessed_array}
 import mist
 import mist/http as mhttp
 import bonk/order.{Order}
 
-pub type AppRequest {
+type AppRequest {
   AppRequest(
     method: http.Method,
     path: List(String),
@@ -26,6 +28,15 @@ pub type AppRequest {
     db: pgo.Connection,
     token: String,
   )
+}
+
+type KofiOrder {
+  KofiOrder(email: String, description: String, order_type: String)
+}
+
+type ParseError {
+  ParseError(String)
+  JsonDecodeError
 }
 
 pub fn start(db: pgo.Connection) {
@@ -42,7 +53,7 @@ pub fn start(db: pgo.Connection) {
 
   assert Ok(_) = mist.serve(port, mhttp.handler(web, 1_000_000))
 
-  ["Listening on http://localhost:", int.to_string(port), " ✨"]
+  ["-- Listening on http://localhost:", int.to_string(port), " ✨"]
   |> string.concat()
   |> io.println()
 }
@@ -94,16 +105,16 @@ fn auth(req: AppRequest) -> Result(AppRequest, Response(BitBuilder)) {
 }
 
 fn router(req: AppRequest) -> Response(BitBuilder) {
-  io.println("Received request:")
+  io.println("-- Received request:")
   io.debug(req)
 
   case req.method, req.path {
     http.Post, ["order"] ->
-      case parse_json(req.body) {
+      case parse_body(req.body) {
         Ok(order) ->
           case order.insert(req.db, order) {
             Ok(_) ->
-              response.new(201)
+              response.new(200)
               |> response.set_body(bit_builder.from_string(
                 "Success inserting order",
               ))
@@ -132,15 +143,52 @@ fn router(req: AppRequest) -> Response(BitBuilder) {
   }
 }
 
-fn parse_json(json_string: String) -> Result(Order, DecodeError) {
+fn parse_body(body: String) -> Result(Order, ParseError) {
+  body
+  |> uri.percent_decode()
+  |> result.unwrap("")
+  |> string.crop("{")
+  |> parse_json()
+  |> result.then(validate_order_type)
+  |> result.then(cast_order)
+}
+
+fn parse_json(json_string: String) -> Result(KofiOrder, ParseError) {
   let decoder =
-    dynamic.decode2(
-      Order,
-      field("discord_id", of: string),
+    dynamic.decode3(
+      KofiOrder,
       field("email", of: string),
+      field("message", of: string),
+      field("type", of: string),
     )
 
   json.decode(from: json_string, using: decoder)
+  |> result.replace_error(JsonDecodeError)
+}
+
+fn validate_order_type(order: KofiOrder) -> Result(KofiOrder, ParseError) {
+  case order.order_type {
+    "Commission" -> Ok(order)
+    _ -> {
+      ["-- Invalid order type: ", order.order_type]
+      |> string.concat()
+      |> io.println()
+      Error(ParseError("Invalid order type"))
+    }
+  }
+}
+
+fn cast_order(order: KofiOrder) -> Result(Order, ParseError) {
+  let discord_id =
+    order.description
+    |> string.split_once("[")
+    |> result.then(fn(x) { string.split_once(x.1, "]") })
+    |> result.map(pair.first)
+
+  case discord_id {
+    Ok(id) -> Ok(Order(email: order.email, discord_id: id))
+    Error(_) -> Error(ParseError("Invalid discord id"))
+  }
 }
 
 fn gen_json(orders: List(Order)) -> String {
