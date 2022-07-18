@@ -179,16 +179,12 @@ fn validate_order_type(order: KofiOrder) -> Result(KofiOrder, ParseError) {
 }
 
 fn cast_order(order: KofiOrder) -> Result(Order, ParseError) {
-  let discord_id =
-    order.description
-    |> string.split_once("[")
-    |> result.then(fn(x) { string.split_once(x.1, "]") })
-    |> result.map(pair.first)
-
-  case discord_id {
-    Ok(id) -> Ok(Order(email: order.email, discord_id: id))
-    Error(_) -> Error(ParseError("Invalid discord id"))
-  }
+  order.description
+  |> string.split_once("[")
+  |> result.then(fn(x) { string.split_once(x.1, "]") })
+  |> result.map(pair.first)
+  |> result.map(fn(id) { Order(email: order.email, discord_id: id) })
+  |> result.replace_error(ParseError("Invalid discord id"))
 }
 
 fn gen_json(orders: List(Order)) -> String {
