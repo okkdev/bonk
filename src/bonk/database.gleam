@@ -10,6 +10,7 @@ pub fn connect() -> pgo.Connection {
   let config =
     os.get_env("DATABASE_URL")
     |> result.then(pgo.url_config)
+    |> result.map(fn(config) { pgo.Config(..config, ip_version: pgo.Ipv6) })
     |> result.lazy_unwrap(fn() {
       pgo.Config(
         ..pgo.default_config(),
