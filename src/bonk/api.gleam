@@ -146,9 +146,11 @@ fn router(req: AppRequest) -> Response(BitBuilder) {
 fn parse_body(body: String) -> Result(Order, ParseError) {
   body
   |> uri.percent_decode()
+  |> io.debug
   |> result.unwrap("")
   |> string.crop("{")
   |> parse_json()
+  |> io.debug
   |> result.then(validate_order_type)
   |> result.then(cast_order)
 }
@@ -168,7 +170,7 @@ fn parse_json(json_string: String) -> Result(KofiOrder, ParseError) {
 
 fn validate_order_type(order: KofiOrder) -> Result(KofiOrder, ParseError) {
   case order.order_type {
-    "Commission" -> Ok(order)
+    "Donation" -> Ok(order)
     _ -> {
       ["-- Invalid order type: ", order.order_type]
       |> string.concat()
