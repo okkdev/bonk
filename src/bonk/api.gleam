@@ -146,11 +146,9 @@ fn router(req: AppRequest) -> Response(BitBuilder) {
 fn parse_body(body: String) -> Result(Order, ParseError) {
   body
   |> uri.percent_decode()
-  |> io.debug
   |> result.unwrap("")
   |> string.crop("{")
   |> parse_json()
-  |> io.debug
   |> result.then(validate_order_type)
   |> result.then(cast_order)
 }
