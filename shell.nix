@@ -18,5 +18,6 @@ mkShell {
   buildInputs = [
     gleam
     rebar3
+    flyctl
   ];
 }
